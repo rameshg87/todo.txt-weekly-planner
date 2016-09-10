@@ -1,0 +1,99 @@
+#!/bin/bash
+
+action=$1
+flag=$2
+shift
+shift
+
+ALLOCATIONS_CONF="$HOME/.todo.actions.d/wp/allocations.conf"
+
+function time_spent_this_week() {
+    project="$*"
+    current_day_of_week=$(date +%-u)
+    grep_string=$(date "+%Y-%m-%d")
+    local time_spent=0
+    while [[ $current_day_of_week -gt 0 ]]
+    do
+        if [ "$(uname)" == "Darwin" ]; then
+            grep_string+="|$(date "-v-${current_day_of_week}d" "+%Y-%m-%d")"
+        else
+            grep_string+="|$(date --date="${current_day_of_week} day ago" "+%Y-%m-%d")"
+        fi
+        current_day_of_week=$((current_day_of_week-1))
+    done
+    while read -r line3
+    do
+        estimate=$(echo $line3 | sed -n 's/.*est:\([0-9]*\).*/\1/p')
+        actual=$(echo $line3 | sed -n 's/.*min:\([0-9]*\).*/\1/p')
+        if [[ -n "$actual" ]]; then
+            time_spent=$((time_spent+actual))
+        elif [[ -n "$estimate" ]]; then
+            time_spent=$((time_spent+estimate))
+        fi
+    done <<< "$(todo.sh lsa $project | egrep "0 x ($grep_string)")"
+    echo $time_spent
+}
+
+function print() {
+    action=$1
+    shift
+    declare -A allocated_time
+    requested_project=$(echo $* | xargs -n1 | sort | tr '\n' ' ')
+    while read -r line 
+    do
+        project=$(echo $line | awk -F':' '{print $1}' | xargs -n1 | sort | tr '\n' ' ')
+        if [[ -z "$requested_project" || "$requested_project" = "$project" ]]; 
+        then
+            time_allocated=$(echo $line | awk -F':' '{print $2}')
+            time_spent=$(time_spent_this_week "$project")
+            allocated_time["$project"]=$(($time_allocated-$time_spent))
+            if [[ "$action" = "summary" ]]; then
+                echo -e "$project:"
+                echo -e "Total time allocated: $time_allocated"
+                echo -e "Total time spent: $time_spent"
+                echo -e "Total time left: ${allocated_time[$project]}\n"
+            elif [[ "$action" = "ls" ]]; then
+                todo.sh ls $project | while read line2 
+                do
+                    estimate=$(echo $line2 | sed -n 's/.*est:\([0-9]*\).*/\1/p')
+                    if [[ -n "$estimate" ]]; then
+                        allocated_time["$project"]=$((${allocated_time[$project]}-estimate))
+                        echo "$line2"
+                    fi
+                    if (( ${allocated_time[$project]} <= 0 )); then
+                        break
+                    fi
+                done
+            fi
+        fi
+    done < "$ALLOCATIONS_CONF"
+}
+
+[ "$action" = "usage" ] && {
+    echo "todo.sh wp alloc[ations] ==> Display the current allocation"
+    echo "todo.sh wp sum[mary] ==> Display the summary for this week"
+    echo "todo.sh wp ls ==> Display the tasks for this week"
+}
+
+[[ "$flag" = "allocations" || "$flag" = "alloc" ]] && {
+    cat $ALLOCATIONS_CONF
+}
+
+[[ "$flag" = "ls" ]] && {
+    print ls $*
+}
+
+[[ "$flag" = "summary" || "$flag" = "sum" ]] && {
+    print summary $*
+}
+
+[[ "$flag" = "add" ]] && {
+    estimate=$(echo "$*" | sed -n 's/.*est:\([0-9]*\).*/\1/p')
+    if [[ -z "$estimate" ]]; then
+        echo "Task is missing estimate !!"
+    else
+        todo.sh add $*
+    fi
+}
+
+exit 0
