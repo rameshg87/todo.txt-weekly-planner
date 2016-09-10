@@ -1,2 +1,4 @@
-+office:2700
-+personal:1200
++office @review:300
++office +projectX @code:1500
++office @maintenance:300
++office @learn:600
