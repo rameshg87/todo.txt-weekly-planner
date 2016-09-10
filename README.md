@@ -60,6 +60,12 @@ All units are in minutes.
 * The remaining tasks that need to completed in the week.
 
   ```
+  todo.sh wp ls
+  ```
+
+* The remaining tasks is reviews that need to completed in the week.
+
+  ```
   todo.sh wp ls "+office @reviews" 
   ```
 
@@ -72,7 +78,8 @@ All units are in minutes.
 ## Requirements:
 
 * All tasks need to have an estimate. This should be with the "est:" tag and
-  time should be mentioned in minutes. Example:
+  time should be mentioned in minutes. Use "todo.sh wp add" to make sure
+  we always add tasks with estimates. Example:
   ```
   Prepare design doc +office est:60
   ```
