@@ -12,9 +12,13 @@ is a particular combination of a +project and @context. For example:
 
 ```
 +office @reviews
++office +projectX
 +office @learn
 +personal
 ```
+
+For example, we might like to allocate 5 hours for review, 25 hours for projectX
+5 hours for learning, etc.
 
 Some important points:
 * All units of time are in minutes. 
@@ -72,7 +76,7 @@ All units are in minutes.
 * Add the tasks using wp to prevent adding tasks without estimates.
 
   ```
-  todo.sh wp add "review code +office @reviews" 
+  todo.sh wp add "review code Y est:30 +office @reviews" 
   ```
 
 ## Requirements:

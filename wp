@@ -49,9 +49,18 @@ function print() {
             allocated_time["$project"]=$(($time_allocated-$time_spent))
             if [[ "$action" = "summary" ]]; then
                 echo -e "$project:"
-                echo -e "Total time allocated: $time_allocated"
-                echo -e "Total time spent: $time_spent"
-                echo -e "Total time left: ${allocated_time[$project]}\n"
+                echo -e "Total time allocated: $time_allocated mins"
+                echo -e "Total time spent: $time_spent mins"
+                echo -e "Total time left: ${allocated_time[$project]} mins"
+                total_tasks_time=0
+                while read -r line2 
+                do
+                    estimate=$(echo $line2 | sed -n 's/.*est:\([0-9]*\).*/\1/p')
+                    if [[ -n "$estimate" ]]; then
+                        total_tasks_time=$((total_tasks_time+estimate))
+                    fi
+                done <<< "$(todo.sh ls $project)"
+                echo -e "Total tasks available for: $total_tasks_time mins"
             elif [[ "$action" = "ls" ]]; then
                 todo.sh ls $project | while read line2 
                 do
