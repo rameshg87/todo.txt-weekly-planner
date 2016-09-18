@@ -12,7 +12,7 @@ function time_spent_this_week() {
     current_day_of_week=$(date +%-u)
     grep_string=$(date "+%Y-%m-%d")
     local time_spent=0
-    while [[ $current_day_of_week -gt 0 ]]
+    while [[ $current_day_of_week -gt 0 && $current_day_of_week -lt 7 ]]
     do
         if [ "$(uname)" == "Darwin" ]; then
             grep_string+="|$(date "-v-${current_day_of_week}d" "+%Y-%m-%d")"
