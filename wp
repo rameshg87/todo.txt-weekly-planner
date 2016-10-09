@@ -39,6 +39,7 @@ function print() {
     shift
     declare -A allocated_time
     requested_project=$(echo $* | xargs -n1 | sort | tr '\n' ' ')
+    graph_cmdline=""
     while read -r line 
     do
         project=$(echo $line | awk -F':' '{print $1}' | xargs -n1 | sort | tr '\n' ' ')
@@ -66,6 +67,8 @@ function print() {
                     fi
                 done <<< "$(todo.sh ls $project)"
                 echo -e "Total tasks available for: $total_tasks_time mins"
+            elif [[ "$action" = "graph" ]]; then
+                graph_cmdline+="$time_spent,$time_allocated,$project;"
             elif [[ "$action" = "ls" ]]; then
                 todo.sh ls $project | while read line2 
                 do
@@ -81,6 +84,7 @@ function print() {
             fi
         fi
     done < "$ALLOCATIONS_CONF"
+    python "$HOME/.todo.actions.d/wp/graph.py" "$graph_cmdline"
 }
 
 [ "$action" = "usage" ] && {
@@ -95,6 +99,10 @@ function print() {
 
 [[ "$flag" = "ls" ]] && {
     print ls $*
+}
+
+[[ "$flag" = "graph" ]] && {
+    print graph $*
 }
 
 [[ "$flag" = "summary" || "$flag" = "sum" ]] && {
