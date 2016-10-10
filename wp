@@ -84,7 +84,9 @@ function print() {
             fi
         fi
     done < "$ALLOCATIONS_CONF"
-    python "$HOME/.todo.actions.d/wp/graph.py" "$graph_cmdline"
+    if [[ "$action" = "graph" ]]; then
+        python "$HOME/.todo.actions.d/wp/graph.py" "$graph_cmdline"
+    fi
 }
 
 [ "$action" = "usage" ] && {
