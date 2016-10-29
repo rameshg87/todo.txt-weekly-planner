@@ -1,123 +1,222 @@
-#!/bin/bash
+#!/usr/bin/python
 
-action=$1
-flag=$2
-shift
-shift
+import sys
+import os
+import re
+import datetime
+import collections
+import termcolor
 
-ALLOCATIONS_CONF="$HOME/.todo.actions.d/wp/allocations.conf"
+action = sys.argv[ 1 ]
+flag = sys.argv[ 2 ]
 
-function time_spent_this_week() {
-    project="$*"
-    current_day_of_week=$(date +%-u)
-    grep_string=$(date "+%Y-%m-%d")
-    local time_spent=0
-    while [[ $current_day_of_week -gt 0 && $current_day_of_week -lt 7 ]]
-    do
-        if [ "$(uname)" == "Darwin" ]; then
-            grep_string+="|$(date "-v-${current_day_of_week}d" "+%Y-%m-%d")"
-        else
-            grep_string+="|$(date --date="${current_day_of_week} day ago" "+%Y-%m-%d")"
-        fi
-        current_day_of_week=$((current_day_of_week-1))
-    done
-    while read -r line3
-    do
-        estimate=$(echo $line3 | sed -n 's/.*est:\([0-9]*\).*/\1/p')
-        actual=$(echo $line3 | sed -n 's/.*min:\([0-9]*\).*/\1/p')
-        if [[ -n "$actual" ]]; then
-            time_spent=$((time_spent+actual))
-        elif [[ -n "$estimate" ]]; then
-            time_spent=$((time_spent+estimate))
-        fi
-    done <<< "$(todo.sh lsa $project | egrep "0 x ($grep_string)")"
-    echo $time_spent
-}
+homeDir = os.getenv( 'HOME' )
+allocationsConf = os.path.join(
+        homeDir, '.todo.actions.d/wp/allocations.conf' )
+todoFile = os.getenv( 'TODO_FILE' )
+doneFile = os.getenv( 'DONE_FILE' )
 
-function print() {
-    action=$1
-    shift
-    declare -A allocated_time
-    requested_project=$(echo $* | xargs -n1 | sort | tr '\n' ' ')
-    graph_cmdline=""
-    while read -r line 
-    do
-        project=$(echo $line | awk -F':' '{print $1}' | xargs -n1 | sort | tr '\n' ' ')
-        if [[ -z "$requested_project" || "$requested_project" = "$project" ]]; 
-        then
-            time_allocated=$(echo $line | awk -F':' '{print $2}')
-            time_spent=$(time_spent_this_week "$project")
-            allocated_time["$project"]=$(($time_allocated-$time_spent))
-            if [[ "$action" = "summary" ]]; then
-                echo -e "$project:"
-                local time_allocated_hrs=$(echo "scale=1; $time_allocated/60" | bc)
-                local time_spent_hrs=$(echo "scale=1; $time_spent/60" | bc)
-                local allocated_time_hrs=$(echo "scale=1; ${allocated_time[$project]}/60" | bc)
-                local percentage_complete=$(echo "scale=1; $time_spent * 100 / $time_allocated" | bc)
-                echo -e "Total time allocated: $time_allocated mins ($time_allocated_hrs hrs)"
-                echo -e "Total time spent: $time_spent mins ($time_spent_hrs hrs)"
-                echo -e "Total time left: ${allocated_time[$project]} mins ($allocated_time_hrs hrs)"
-                echo -e "Percent complete: $percentage_complete%"
-                total_tasks_time=0
-                while read -r line2 
-                do
-                    estimate=$(echo $line2 | sed -n 's/.*est:\([0-9]*\).*/\1/p')
-                    if [[ -n "$estimate" ]]; then
-                        total_tasks_time=$((total_tasks_time+estimate))
-                    fi
-                done <<< "$(todo.sh ls $project)"
-                echo -e "Total tasks available for: $total_tasks_time mins"
-            elif [[ "$action" = "graph" ]]; then
-                graph_cmdline+="$time_spent,$time_allocated,$project;"
-            elif [[ "$action" = "ls" ]]; then
-                todo.sh ls $project | while read line2 
-                do
-                    estimate=$(echo $line2 | sed -n 's/.*est:\([0-9]*\).*/\1/p')
-                    if [[ -n "$estimate" ]]; then
-                        allocated_time["$project"]=$((${allocated_time[$project]}-estimate))
-                        echo "$line2"
-                    fi
-                    if (( ${allocated_time[$project]} <= 0 )); then
-                        break
-                    fi
-                done
-            fi
-        fi
-    done < "$ALLOCATIONS_CONF"
-    if [[ "$action" = "graph" ]]; then
-        python "$HOME/.todo.actions.d/wp/graph.py" "$graph_cmdline"
-    fi
-}
+def timeStr( timeMins ):
+    return "%s mins (%.1f hrs)" % ( timeMins, int( timeMins ) / 60.0 )
 
-[ "$action" = "usage" ] && {
-    echo "todo.sh wp alloc[ations] ==> Display the current allocation"
-    echo "todo.sh wp sum[mary] ==> Display the summary for this week"
-    echo "todo.sh wp ls ==> Display the tasks for this week"
-}
+def doAddTask( newTask ):
+    estimate = re.search( "est:(\d+)", newTask )
+    if not estimate:
+        print "Task is missing estimate !!"
+        return
+    with open( todoFile, "a" ) as f:
+        f.write( newTask )
 
-[[ "$flag" = "allocations" || "$flag" = "alloc" ]] && {
-    cat $ALLOCATIONS_CONF
-}
+def projectsInAlloc():
+    lines = None
+    allocations = { }
+    with open( allocationsConf, "r" ) as f:
+        for line in f.readlines():
+            project, timeMins = line.strip().split( ":" )
+            allocations[ project ] = int( timeMins )
+    return allocations
 
-[[ "$flag" = "ls" ]] && {
-    print ls $*
-}
+def getSundayOfTheWeek( anyDayOfWeek ):
+    dayOfWeek = datetime.date( *tuple(
+            [ int( x ) for x in anyDayOfWeek.split( "-" ) ] ) )
+    dayIndex = dayOfWeek.isoweekday() % 7
+    sundayOfTheWeek = dayOfWeek - datetime.timedelta( days=dayIndex )
+    return sundayOfTheWeek
 
-[[ "$flag" = "graph" ]] && {
-    print graph $*
-}
+def getMinorEst( line ):
+    match = re.search( "min:(\d+)", line )
+    if match:
+        return int( match.group( 1 ) )
+    else:
+        match = re.search( "est:(\d+)", line )
+        assert match
+        return int( match.group( 1 ) )
 
-[[ "$flag" = "summary" || "$flag" = "sum" ]] && {
-    print summary $*
-}
+def timeSpentOnWeek( anyDayOfWeek=None, projects=None ):
+    if not projects:
+        projects = projectsInAlloc().keys()
+    if not anyDayOfWeek:
+        anyDayOfWeek = datetime.date.today().isoformat()
+    sundayOfTheWeek = getSundayOfTheWeek( anyDayOfWeek )
+    daysOfWeek = [ 
+            ( sundayOfTheWeek + datetime.timedelta( days=x ) ).isoformat()
+            for x in range( 7 ) ]  
+    searchRegex = ( 
+            r"^x (%s).*(%s)" %
+            ( "|".join( daysOfWeek ), 
+              "|".join( [ x.replace( "+", "\+" ) for x in projects ] ) ) )
+    timeSpent = collections.defaultdict( lambda: 0 ) 
+    with open( doneFile, "r" ) as f:
+        for line in f.readlines():
+            match = re.search( searchRegex, line )
+            if match:
+                project = match.group( 2 )
+                timeSpent[ project ] = ( 
+                        timeSpent[ project ] + getMinorEst( line ) )
+    return timeSpent
 
-[[ "$flag" = "add" ]] && {
-    estimate=$(echo "$*" | sed -n 's/.*est:\([0-9]*\).*/\1/p')
-    if [[ -z "$estimate" ]]; then
-        echo "Task is missing estimate !!"
-    else
-        todo.sh add $*
-    fi
-}
+def summaryForWeek( anyDayOfWeek, projects=None ):
+    if not projects:
+        projects = projectsInAlloc().keys()
+    sundayOfThisWeek = getSundayOfTheWeek( 
+            datetime.date.today().isoformat() )
+    sundayOfGivenDay = getSundayOfTheWeek( anyDayOfWeek )
+    allocations = projectsInAlloc()
+    timeSpent = timeSpentOnWeek( anyDayOfWeek, projects=projects )
+    if sundayOfThisWeek == sundayOfGivenDay:
+        # This week
+        for project in projects:
+            timeAllocated = allocations[ project ]
+            timeCompleted = timeSpent[ project ]
+            color = getColorForGraphLine( timeCompleted, timeAllocated )
+            percentComplete = ( 
+                    timeSpent[ project ] * 100.0 / timeAllocated )
+            def colored_print( string ):
+                print termcolor.colored( string, color )
 
-exit 0
+            print termcolor.colored( project, "cyan" )
+            colored_print( 
+                    "Total time allocated: %s" % timeStr( timeAllocated ) )
+            colored_print(
+                    "Total time spent: %s" % timeStr( timeCompleted ) )
+            colored_print(
+                    "Total time left: %s" % timeStr( 
+                        timeAllocated - timeCompleted ) )
+            colored_print( "Percent complete: %.1f%%" % percentComplete )
+    else:
+        for project in projects:
+            print project
+            print "Total time spent: %s" % timeStr( timeSpent[ project ] )
+
+def getConvertedNumberForGraph( number, maxNumber, reference ):
+    return ( number * reference ) / maxNumber
+
+def getColorForGraphLine( timeCompleted, timeAllocated ):
+    percentComplete = ( timeCompleted * 100 ) / timeAllocated
+    if percentComplete >= 80:
+        return "green"
+    elif percentComplete >= 50:
+        return "cyan"
+    else:
+        return "red"
+
+def printGraph( projects ):
+    allocations = projectsInAlloc()
+    if not projects:
+        projects = allocations.keys()
+    timeSpent = timeSpentOnWeek( None, projects=allocations.keys())
+    maxNumberRef = max( timeSpent.values() + allocations.values() )
+    _, columns = os.popen('stty size', 'r').read().split()
+    convertedMaxNumberRef = int( columns ) / 2
+    for project in projects:
+        timeAllocated = allocations[ project ]
+        timeCompleted = timeSpent[ project ]
+        print project
+        color = getColorForGraphLine( timeCompleted, timeAllocated )
+        lineForCompleted = "=" * getConvertedNumberForGraph( 
+                timeCompleted, maxNumberRef, convertedMaxNumberRef )
+        lineForAllocated = "=" * getConvertedNumberForGraph( 
+                timeAllocated, maxNumberRef, convertedMaxNumberRef )
+        print termcolor.colored( lineForCompleted, color )
+        print termcolor.colored( lineForAllocated, color )
+
+def getTasksForProject( project ):
+    with open( todoFile, "r" ) as f:
+        return [ str( i + 1 ) + " " + x.strip() 
+                 for i, x in enumerate( f.readlines() )
+                 if project in x ]
+
+def getPriority( task ):
+    match = re.search( "^\d+\s+\((\w)\)", task )
+    priority = 0
+    if match:
+        priority = 92 - ord( match.group( 1 ) )
+    return priority
+        
+def taskComparator( task1, task2 ):
+    return getPriority( task1 ) - getPriority( task2 )
+
+def coloredTaskPrint( task ):
+    priority = getPriority( task )
+    if priority:
+        colorMap = { 27: "yellow", 26: "green", 25: "blue",
+                     24: "white" }
+        print termcolor.colored( task, colorMap[ priority ] )
+    else:
+        print task
+
+def doLs( projects=None ):
+    allocations = projectsInAlloc()
+    timeSpent = timeSpentOnWeek( None, projects=allocations.keys())
+    selectedTasksForProject = collections.defaultdict( list )
+    if not projects:
+        projects = allocations.keys()
+    for project in projects:
+        timeAllocated = allocations[ project ]
+        timeCompleted = timeSpent[ project ]
+        tasksForProject = sorted( 
+                getTasksForProject( project ), cmp=taskComparator,
+                reverse=True )
+        for task in tasksForProject:
+            time = getMinorEst( task )
+            timeCompleted += time
+            selectedTasksForProject[ project ].append( task )
+            if timeCompleted > timeAllocated:
+                break
+    for project, tasks in selectedTasksForProject.items():
+        print termcolor.colored( project, "cyan" )
+        for task in tasks:
+            coloredTaskPrint( task )
+        print ""
+
+if action == "usage":
+    print "todo.sh wp alloc[ations] ==> Display the current allocation"
+    print "todo.sh wp sum[mary] ==> Display the summary for this week"
+    print "todo.sh wp ls ==> Display the tasks for this week"
+elif flag.startswith( "alloc" ):
+    for project, timeMins in sorted( projectsInAlloc().items() ):
+        print "%s:%s" % ( project, timeStr( timeMins ) )
+elif flag == "ls":
+    projects = None
+    if len( sys.argv ) > 3 and sys.argv[ 3 ]:
+        projects = [ sys.argv[ 3 ] ]
+    doLs( projects )
+elif flag == "graph":
+    projects = None
+    if len( sys.argv ) > 3 and sys.argv[ 3 ]:
+        projects = [ sys.argv[ 3 ] ]
+    printGraph( projects )
+elif flag.startswith( "sum" ):
+    dayOfWeek = datetime.date.today().isoformat()
+    projects = None
+    if len( sys.argv ) > 3 and sys.argv[ 3 ]:
+        projects = [ sys.argv[ 3 ] ]
+    if len( sys.argv ) > 4 and sys.argv[ 4 ]:
+        dayOfWeek = sys.argv[ 4 ]
+    summaryForWeek( dayOfWeek, projects )
+elif flag == "add":
+    if len( sys.argv ) < 4:
+        print "Missing task !!"
+    else:
+        newTask = sys.argv[ 3 ] 
+        doAddTask( newTask )
