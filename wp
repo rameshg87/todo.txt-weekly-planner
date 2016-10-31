@@ -8,13 +8,13 @@ import collections
 import termcolor
 
 action = sys.argv[ 1 ]
-flag = sys.argv[ 2 ]
 
 homeDir = os.getenv( 'HOME' )
 allocationsConf = os.path.join(
         homeDir, '.todo.actions.d/wp/allocations.conf' )
 todoFile = os.getenv( 'TODO_FILE' )
 doneFile = os.getenv( 'DONE_FILE' )
+MAX_TOLERANCE = 15
 
 def timeStr( timeMins ):
     return "%s mins (%.1f hrs)" % ( timeMins, int( timeMins ) / 60.0 )
@@ -25,7 +25,7 @@ def doAddTask( newTask ):
         print "Task is missing estimate !!"
         return
     with open( todoFile, "a" ) as f:
-        f.write( newTask )
+        f.write( newTask + "\n" )
 
 def projectsInAlloc():
     lines = None
@@ -58,27 +58,27 @@ def timeSpentOnWeek( anyDayOfWeek=None, projects=None ):
     if not anyDayOfWeek:
         anyDayOfWeek = datetime.date.today().isoformat()
     sundayOfTheWeek = getSundayOfTheWeek( anyDayOfWeek )
-    daysOfWeek = [ 
+    daysOfWeek = [
             ( sundayOfTheWeek + datetime.timedelta( days=x ) ).isoformat()
-            for x in range( 7 ) ]  
-    searchRegex = ( 
+            for x in range( 7 ) ]
+    searchRegex = (
             r"^x (%s).*(%s)" %
-            ( "|".join( daysOfWeek ), 
+            ( "|".join( daysOfWeek ),
               "|".join( [ x.replace( "+", "\+" ) for x in projects ] ) ) )
-    timeSpent = collections.defaultdict( lambda: 0 ) 
+    timeSpent = collections.defaultdict( lambda: 0 )
     with open( doneFile, "r" ) as f:
         for line in f.readlines():
             match = re.search( searchRegex, line )
             if match:
                 project = match.group( 2 )
-                timeSpent[ project ] = ( 
+                timeSpent[ project ] = (
                         timeSpent[ project ] + getMinorEst( line ) )
     return timeSpent
 
 def summaryForWeek( anyDayOfWeek, projects=None ):
     if not projects:
         projects = projectsInAlloc().keys()
-    sundayOfThisWeek = getSundayOfTheWeek( 
+    sundayOfThisWeek = getSundayOfTheWeek(
             datetime.date.today().isoformat() )
     sundayOfGivenDay = getSundayOfTheWeek( anyDayOfWeek )
     allocations = projectsInAlloc()
@@ -89,19 +89,24 @@ def summaryForWeek( anyDayOfWeek, projects=None ):
             timeAllocated = allocations[ project ]
             timeCompleted = timeSpent[ project ]
             color = getColorForGraphLine( timeCompleted, timeAllocated )
-            percentComplete = ( 
+            percentComplete = (
                     timeSpent[ project ] * 100.0 / timeAllocated )
+            timeAvailableTasks = sum(
+                getMinorEst( x ) for x in getTasksForProject( project ) )
             def colored_print( string ):
                 print termcolor.colored( string, color )
 
             print termcolor.colored( project, "cyan" )
-            colored_print( 
+            colored_print(
                     "Total time allocated: %s" % timeStr( timeAllocated ) )
             colored_print(
                     "Total time spent: %s" % timeStr( timeCompleted ) )
             colored_print(
-                    "Total time left: %s" % timeStr( 
+                    "Total time left: %s" % timeStr(
                         timeAllocated - timeCompleted ) )
+            colored_print(
+                    "Total time for which tasks available: %s" %
+                    timeStr( timeAvailableTasks ) )
             colored_print( "Percent complete: %.1f%%" % percentComplete )
     else:
         for project in projects:
@@ -133,16 +138,19 @@ def printGraph( projects ):
         timeCompleted = timeSpent[ project ]
         print project
         color = getColorForGraphLine( timeCompleted, timeAllocated )
-        lineForCompleted = "=" * getConvertedNumberForGraph( 
+        lineForCompleted = "=" * getConvertedNumberForGraph(
                 timeCompleted, maxNumberRef, convertedMaxNumberRef )
-        lineForAllocated = "=" * getConvertedNumberForGraph( 
+        lineForAllocated = "=" * getConvertedNumberForGraph(
                 timeAllocated, maxNumberRef, convertedMaxNumberRef )
-        print termcolor.colored( lineForCompleted, color )
-        print termcolor.colored( lineForAllocated, color )
+        print termcolor.colored( lineForCompleted, color ), \
+                timeStr( timeCompleted )
+        print termcolor.colored( lineForAllocated, color ), \
+                timeStr( timeAllocated )
+        print ""
 
 def getTasksForProject( project ):
     with open( todoFile, "r" ) as f:
-        return [ str( i + 1 ) + " " + x.strip() 
+        return [ str( i + 1 ) + " " + x.strip()
                  for i, x in enumerate( f.readlines() )
                  if project in x ]
 
@@ -152,7 +160,7 @@ def getPriority( task ):
     if match:
         priority = 92 - ord( match.group( 1 ) )
     return priority
-        
+
 def taskComparator( task1, task2 ):
     return getPriority( task1 ) - getPriority( task2 )
 
@@ -172,51 +180,72 @@ def doLs( projects=None ):
     if not projects:
         projects = allocations.keys()
     for project in projects:
-        timeAllocated = allocations[ project ]
+        timeAllocated = allocations.get( project, 10000 )
         timeCompleted = timeSpent[ project ]
-        tasksForProject = sorted( 
+        if timeCompleted >= timeAllocated:
+            continue
+        tasksForProject = sorted(
                 getTasksForProject( project ), cmp=taskComparator,
                 reverse=True )
+        notAddedTasks = [ ]
+        stoppedTime = None
         for task in tasksForProject:
             time = getMinorEst( task )
             timeCompleted += time
-            selectedTasksForProject[ project ].append( task )
-            if timeCompleted > timeAllocated:
-                break
+            if timeCompleted < timeAllocated:
+                selectedTasksForProject[ project ].append( task )
+                stoppedTime = timeCompleted
+            else:
+                notAddedTasks.append( task )
+        # Get the minimum of notAddedTasks
+        if notAddedTasks:
+            minTask = sorted(
+                [ ( getMinorEst( x ), x )
+                  for x in notAddedTasks ] )[ 0 ][ 1 ]
+            if stoppedTime + getMinorEst( minTask ) < MAX_TOLERANCE:
+                selectedTasksForProject[ project ].append( minTask )
+
     for project, tasks in selectedTasksForProject.items():
         print termcolor.colored( project, "cyan" )
         for task in tasks:
             coloredTaskPrint( task )
         print ""
 
-if action == "usage":
-    print "todo.sh wp alloc[ations] ==> Display the current allocation"
-    print "todo.sh wp sum[mary] ==> Display the summary for this week"
-    print "todo.sh wp ls ==> Display the tasks for this week"
-elif flag.startswith( "alloc" ):
-    for project, timeMins in sorted( projectsInAlloc().items() ):
-        print "%s:%s" % ( project, timeStr( timeMins ) )
-elif flag == "ls":
-    projects = None
-    if len( sys.argv ) > 3 and sys.argv[ 3 ]:
-        projects = [ sys.argv[ 3 ] ]
-    doLs( projects )
-elif flag == "graph":
-    projects = None
-    if len( sys.argv ) > 3 and sys.argv[ 3 ]:
-        projects = [ sys.argv[ 3 ] ]
-    printGraph( projects )
-elif flag.startswith( "sum" ):
-    dayOfWeek = datetime.date.today().isoformat()
-    projects = None
-    if len( sys.argv ) > 3 and sys.argv[ 3 ]:
-        projects = [ sys.argv[ 3 ] ]
-    if len( sys.argv ) > 4 and sys.argv[ 4 ]:
-        dayOfWeek = sys.argv[ 4 ]
-    summaryForWeek( dayOfWeek, projects )
-elif flag == "add":
-    if len( sys.argv ) < 4:
-        print "Missing task !!"
-    else:
-        newTask = sys.argv[ 3 ] 
-        doAddTask( newTask )
+def main():
+    if action == "usage":
+        print "todo.sh wp alloc[ations] ==> Display the current allocation"
+        print "todo.sh wp sum[mary] ==> Display the summary for this week"
+        print "todo.sh wp ls ==> Display the tasks for this week"
+        print "todo.sh wp graph ==> Display the graph"
+        return
+
+    flag = sys.argv[ 2 ]
+    if flag.startswith( "alloc" ):
+        for project, timeMins in sorted( projectsInAlloc().items() ):
+            print "%s:%s" % ( project, timeStr( timeMins ) )
+    elif flag == "ls":
+        projects = None
+        if len( sys.argv ) > 3 and sys.argv[ 3 ]:
+            projects = [ sys.argv[ 3 ] ]
+        doLs( projects )
+    elif flag == "graph":
+        projects = None
+        if len( sys.argv ) > 3 and sys.argv[ 3 ]:
+            projects = [ sys.argv[ 3 ] ]
+        printGraph( projects )
+    elif flag.startswith( "sum" ):
+        dayOfWeek = datetime.date.today().isoformat()
+        projects = None
+        if len( sys.argv ) > 3 and sys.argv[ 3 ]:
+            projects = [ sys.argv[ 3 ] ]
+        if len( sys.argv ) > 4 and sys.argv[ 4 ]:
+            dayOfWeek = sys.argv[ 4 ]
+        summaryForWeek( dayOfWeek, projects )
+    elif flag == "add":
+        if len( sys.argv ) < 4:
+            print "Missing task !!"
+        else:
+            newTask = sys.argv[ 3 ]
+            doAddTask( newTask )
+
+main()
