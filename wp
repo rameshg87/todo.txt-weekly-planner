@@ -188,11 +188,11 @@ def doLs( projects=None ):
                 getTasksForProject( project ), cmp=taskComparator,
                 reverse=True )
         notAddedTasks = [ ]
-        stoppedTime = None
+        stoppedTime = 0
         for task in tasksForProject:
             time = getMinorEst( task )
             timeCompleted += time
-            if timeCompleted < timeAllocated:
+            if timeCompleted <= timeAllocated:
                 selectedTasksForProject[ project ].append( task )
                 stoppedTime = timeCompleted
             else:
@@ -202,7 +202,7 @@ def doLs( projects=None ):
             minTask = sorted(
                 [ ( getMinorEst( x ), x )
                   for x in notAddedTasks ] )[ 0 ][ 1 ]
-            if stoppedTime + getMinorEst( minTask ) < MAX_TOLERANCE:
+            if stoppedTime + getMinorEst( minTask ) <= MAX_TOLERANCE:
                 selectedTasksForProject[ project ].append( minTask )
 
     for project, tasks in selectedTasksForProject.items():
