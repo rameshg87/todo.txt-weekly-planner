@@ -21,11 +21,14 @@ def timeStr( timeMins ):
 
 def doAddTask( newTask ):
     estimate = re.search( "est:(\d+)", newTask )
+    newTaskIndex = len( getTasksForProject( '' ) ) + 1
     if not estimate:
         print "Task is missing estimate !!"
         return
     with open( todoFile, "a" ) as f:
         f.write( newTask + "\n" )
+    print "%s %s" % ( newTaskIndex, newTask )
+    print "TODO: %s added." % newTaskIndex
 
 def projectsInAlloc():
     lines = None
