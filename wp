@@ -79,25 +79,32 @@ def timeSpentOnWeek( anyDayOfWeek=None, projects=None ):
     return timeSpent
 
 def summaryForWeek( anyDayOfWeek, projects=None ):
+    printTotal = False
     if not projects:
         projects = projectsInAlloc().keys()
+        printTotal = True
     sundayOfThisWeek = getSundayOfTheWeek(
             datetime.date.today().isoformat() )
     sundayOfGivenDay = getSundayOfTheWeek( anyDayOfWeek )
     allocations = projectsInAlloc()
     timeSpent = timeSpentOnWeek( anyDayOfWeek, projects=projects )
+    totalAllocated = 0
+    totalCompleted = 0
+    color = None
+    def colored_print( string ):
+        print termcolor.colored( string, color )
     if sundayOfThisWeek == sundayOfGivenDay:
         # This week
         for project in projects:
             timeAllocated = allocations[ project ]
             timeCompleted = timeSpent[ project ]
+            totalAllocated += timeAllocated
+            totalCompleted += timeCompleted
             color = getColorForGraphLine( timeCompleted, timeAllocated )
             percentComplete = (
                     timeSpent[ project ] * 100.0 / timeAllocated )
             timeAvailableTasks = sum(
                 getMinorEst( x ) for x in getTasksForProject( project ) )
-            def colored_print( string ):
-                print termcolor.colored( string, color )
 
             print termcolor.colored( project, "cyan" )
             colored_print(
@@ -106,10 +113,23 @@ def summaryForWeek( anyDayOfWeek, projects=None ):
                     "Total time spent: %s" % timeStr( timeCompleted ) )
             colored_print(
                     "Total time left: %s" % timeStr(
-                        timeAllocated - timeCompleted ) )
+                        max( 0, timeAllocated - timeCompleted ) ) )
             colored_print(
                     "Total time for which tasks available: %s" %
                     timeStr( timeAvailableTasks ) )
+            colored_print( "Percent complete: %.1f%%" % percentComplete )
+        if printTotal:
+            print termcolor.colored( "Total", "cyan" )
+            percentComplete = (
+                    totalCompleted * 100.0 / totalAllocated )
+            color = getColorForGraphLine( totalCompleted, totalAllocated )
+            colored_print(
+                    "Total time allocated: %s" % timeStr( totalAllocated ) )
+            colored_print(
+                    "Total time spent: %s" % timeStr( totalCompleted ) )
+            colored_print(
+                    "Total time left: %s" % timeStr(
+                        max( 0, totalAllocated - totalCompleted ) ) )
             colored_print( "Percent complete: %.1f%%" % percentComplete )
     else:
         for project in projects:
@@ -139,7 +159,9 @@ def printGraph( projects ):
     for project in projects:
         timeAllocated = allocations[ project ]
         timeCompleted = timeSpent[ project ]
-        print project
+        percentComplete = ( 
+                timeSpent[ project ] * 100.0 / timeAllocated )
+        print "%s ( %.1f%% )" % ( project, percentComplete )
         color = getColorForGraphLine( timeCompleted, timeAllocated )
         lineForCompleted = "=" * getConvertedNumberForGraph(
                 timeCompleted, maxNumberRef, convertedMaxNumberRef )
@@ -171,8 +193,9 @@ def coloredTaskPrint( task ):
     priority = getPriority( task )
     if priority:
         colorMap = { 27: "yellow", 26: "green", 25: "blue",
-                     24: "white" }
-        print termcolor.colored( task, colorMap[ priority ] )
+                     24: "cyan", 23: "magenta" }
+        print termcolor.colored( 
+                task, colorMap.get( priority, "white" ) )
     else:
         print task
 
