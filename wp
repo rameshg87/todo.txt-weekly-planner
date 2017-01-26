@@ -6,6 +6,7 @@ import re
 import datetime
 import collections
 import termcolor
+from prettytable import PrettyTable
 
 action = sys.argv[ 1 ]
 
@@ -91,50 +92,46 @@ def summaryForWeek( anyDayOfWeek, projects=None ):
     totalAllocated = 0
     totalCompleted = 0
     color = None
-    def colored_print( string ):
-        print termcolor.colored( string, color )
-    if sundayOfThisWeek == sundayOfGivenDay:
-        # This week
-        for project in projects:
-            timeAllocated = allocations[ project ]
-            timeCompleted = timeSpent[ project ]
-            totalAllocated += timeAllocated
-            totalCompleted += timeCompleted
-            color = getColorForGraphLine( timeCompleted, timeAllocated )
-            percentComplete = (
-                    timeSpent[ project ] * 100.0 / timeAllocated )
-            timeAvailableTasks = sum(
-                getMinorEst( x ) for x in getTasksForProject( project ) )
+    prettyTable = PrettyTable(
+            [ 'Project', 'Time allocated', 'Time completed',
+              'Time left', 'Time tasks available', 'Percent complete' ] )
+    emptyRow = [ "", "", "", "", "", "" ]
 
-            print termcolor.colored( project, "cyan" )
-            colored_print(
-                    "Total time allocated: %s" % timeStr( timeAllocated ) )
-            colored_print(
-                    "Total time spent: %s" % timeStr( timeCompleted ) )
-            colored_print(
-                    "Total time left: %s" % timeStr(
-                        max( 0, timeAllocated - timeCompleted ) ) )
-            colored_print(
-                    "Total time for which tasks available: %s" %
-                    timeStr( timeAvailableTasks ) )
-            colored_print( "Percent complete: %.1f%%" % percentComplete )
-        if printTotal:
-            print termcolor.colored( "Total", "cyan" )
-            percentComplete = (
-                    totalCompleted * 100.0 / totalAllocated )
-            color = getColorForGraphLine( totalCompleted, totalAllocated )
-            colored_print(
-                    "Total time allocated: %s" % timeStr( totalAllocated ) )
-            colored_print(
-                    "Total time spent: %s" % timeStr( totalCompleted ) )
-            colored_print(
-                    "Total time left: %s" % timeStr(
-                        max( 0, totalAllocated - totalCompleted ) ) )
-            colored_print( "Percent complete: %.1f%%" % percentComplete )
-    else:
-        for project in projects:
-            print project
-            print "Total time spent: %s" % timeStr( timeSpent[ project ] )
+    def colored_string( string ):
+       return termcolor.colored( string, color )
+
+     # This week
+    for project in projects:
+        timeAllocated = allocations[ project ]
+        timeCompleted = timeSpent[ project ]
+        totalAllocated += timeAllocated
+        totalCompleted += timeCompleted
+        color = getColorForGraphLine( timeCompleted, timeAllocated )
+        percentComplete = (
+                timeSpent[ project ] * 100.0 / timeAllocated )
+        timeAvailableTasks = sum(
+            getMinorEst( x ) for x in getTasksForProject( project ) )
+        row = [ colored_string( project ) ]
+        row.append( colored_string( timeStr( timeAllocated ) ) )
+        row.append( colored_string( timeStr( timeCompleted ) ) )
+        row.append( colored_string(
+            timeStr( max( 0, timeAllocated - timeCompleted ) ) ) )
+        row.append( colored_string( timeStr( timeAvailableTasks ) ) )
+        row.append( colored_string( "%.01f %%" % percentComplete ) )
+        prettyTable.add_row( row )
+        prettyTable.add_row( emptyRow )
+    if printTotal:
+        color = getColorForGraphLine( totalCompleted, totalAllocated )
+        row = [ colored_string( "Total" ) ]
+        row.append( colored_string( timeStr( totalAllocated ) ) )
+        row.append( colored_string( timeStr( totalCompleted ) ) )
+        row.append( colored_string(
+            timeStr( max( 0, totalAllocated - totalCompleted ) ) ) )
+        percentComplete = ( totalCompleted * 100.0 / totalAllocated )
+        row.append( "" )
+        row.append( colored_string( "%.01f %%" % percentComplete ) )
+        prettyTable.add_row( row )
+    print prettyTable
 
 def getConvertedNumberForGraph( number, maxNumber, reference ):
     return ( number * reference ) / maxNumber
@@ -148,30 +145,69 @@ def getColorForGraphLine( timeCompleted, timeAllocated ):
     else:
         return "red"
 
-def printGraph( projects ):
+def printGraph( projectsInput ):
     allocations = projectsInAlloc()
+    projects = projectsInput
     if not projects:
         projects = allocations.keys()
-    timeSpent = timeSpentOnWeek( None, projects=allocations.keys())
-    maxNumberRef = max( timeSpent.values() + allocations.values() )
+
+    timeSpent = timeSpentOnWeek( None, projects=projects)
+    if not projectsInput:
+        maxNumberRef = max( sum(timeSpent.values()), sum(allocations.values()) )
+    else:
+        maxNumberRef = max( sum(timeSpent.values()), allocations[projectsInput[0]])
+
     _, columns = os.popen('stty size', 'r').read().split()
-    convertedMaxNumberRef = int( columns ) / 2
-    for project in projects:
-        timeAllocated = allocations[ project ]
-        timeCompleted = timeSpent[ project ]
+    convertedMaxNumberRef = ( int( columns ) * 4 ) / 5
+    sundayOfThisWeek = getSundayOfTheWeek( datetime.date.today().isoformat() )
+    midnightOfSundayThisWeek = datetime.datetime(
+            sundayOfThisWeek.year, sundayOfThisWeek.month, 
+            sundayOfThisWeek.day, 0, 0, 0, 0 )
+    difference = ( datetime.datetime.now() - 
+                   midnightOfSundayThisWeek).total_seconds()
+    totalSecondsInAWeek = 604800
+    percentTimeElapsed = float( difference ) / totalSecondsInAWeek
+
+    def _printGraph( project, timeAllocated, timeCompleted, timeExpected ):
         percentComplete = ( 
                 timeSpent[ project ] * 100.0 / timeAllocated )
         print "%s ( %.1f%% )" % ( project, percentComplete )
         color = getColorForGraphLine( timeCompleted, timeAllocated )
-        lineForCompleted = "=" * getConvertedNumberForGraph(
-                timeCompleted, maxNumberRef, convertedMaxNumberRef )
+        lineForCompleted = (
+                "=" * ( getConvertedNumberForGraph( 
+                    timeCompleted, maxNumberRef, convertedMaxNumberRef )
+                        - 1 ) +
+                "|" )
         lineForAllocated = "=" * getConvertedNumberForGraph(
                 timeAllocated, maxNumberRef, convertedMaxNumberRef )
+        convertedNumberForExpected = getConvertedNumberForGraph(
+                timeExpected, maxNumberRef, convertedMaxNumberRef )
+        lineForExpected = ( 
+                " " * ( convertedNumberForExpected - 1 ) + 
+                "| " +
+                timeStr( timeExpected ) )
+
         print termcolor.colored( lineForCompleted, color ), \
                 timeStr( timeCompleted )
         print termcolor.colored( lineForAllocated, color ), \
                 timeStr( timeAllocated )
+        print lineForExpected
         print ""
+
+
+    totalAllocated = 0
+    totalCompleted = 0
+    totalExpected = 0
+    for project in projects:
+        timeAllocated = allocations[ project ]
+        timeCompleted = timeSpent[ project ]
+        timeExpected = int( timeAllocated * percentTimeElapsed )
+        totalAllocated += timeAllocated
+        totalCompleted += timeCompleted
+        totalExpected += timeExpected
+        _printGraph( project, timeAllocated, timeCompleted, timeExpected )
+    if not projectsInput:
+        _printGraph( "Total", totalAllocated, totalCompleted, totalExpected )
 
 def getTasksForProject( project ):
     with open( todoFile, "r" ) as f:
@@ -245,8 +281,11 @@ def main():
 
     flag = sys.argv[ 2 ]
     if flag.startswith( "alloc" ):
+        total = 0
         for project, timeMins in sorted( projectsInAlloc().items() ):
+            total += timeMins
             print "%s:%s" % ( project, timeStr( timeMins ) )
+        print "Total:%s" % ( timeStr( total ) )
     elif flag == "ls":
         projects = None
         if len( sys.argv ) > 3 and sys.argv[ 3 ]:
